@@ -2,17 +2,19 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 1.2 / 31.12.2021
+    Version 1.3 / 31.01.2022
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
 
     Dependencies: 
-    -------------
     - pyOpenSSL 
     - pycryptodomex
     - cryptography
 
+    notice: to use this script you first need to
+            subscribe to the beA.expert API 
+            more info: https://bea.expert/api/
 """
 
 import requests
@@ -36,18 +38,23 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
 
+
+__DEBUG__ = False
+
 __current_path = os.getcwd()
 __config=[]
 __config_file=__current_path+'/private.config.ini'
 if os.path.exists(__config_file):
     __config = configparser.ConfigParser()
     __config.read(__config_file)
-    __DEBUG__ = __config["DEBUG"]["PRINT"]
 else :
-    __config["BEA_EXPERT_API"]["HOST"] = "...."
-    __config["BEA_EXPERT_API"]["BEX_IDENT"] = "...."    
-    __DEBUG__ = True
-
+    __config = {
+        "BEA_EXPERT_API": {
+            "HOST": "...",
+            "BEX_IDENT": "..."
+        }
+    }  
+    
 
 def send_request(__req, __func):    
     url = __config["BEA_EXPERT_API"]["HOST"] + __func
@@ -983,12 +990,12 @@ def bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sess
 
     enc_attachment_data = []
     for a in msg_att_struc.attachments:
+        bin_data = base64.b64decode(a.data.encode('ascii'))
         aesCipher = AES.new(key, AES.MODE_GCM)
-        data_raw = base64.b64decode(a.data.encode('ascii'))
-        ciphertext, tag = aesCipher.encrypt_and_digest(data_raw)
+        ciphertext, tag = aesCipher.encrypt_and_digest(bin_data)
 
         h = SHA256.new()
-        h.update(data_raw)
+        h.update(bin_data)
 
         encAtt_struct = SimpleNamespace()
         encAtt_struct.data = base64.b64encode(ciphertext).decode('utf-8')
@@ -996,7 +1003,7 @@ def bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sess
         encAtt_struct.iv = base64.b64encode(aesCipher.nonce).decode('utf-8')
         encAtt_struct.key = base64.b64encode(key).decode('utf-8')
         encAtt_struct.name = a.name
-        encAtt_struct.sizeKB = int(len(data_raw) / 1024)
+        encAtt_struct.sizeKB = int(len(a.data) / 1024)
         encAtt_struct.hash = base64.b64encode(h.digest()).decode('utf-8')
         encAtt_struct.att_type = a.att_type
         encAtt = json.loads(json.dumps(encAtt_struct, default=lambda o: o.__dict__, sort_keys=True, indent=4))
@@ -1075,7 +1082,7 @@ def bea_send_message(__token, __postboxSafeId, __msg_infos, __msg_att, __session
         print(validations)
 
     token, info, messageId = bea_send_message_validation(validationTokenMSG, validations, __sessionKey)
-    return token, info, messageId     
+    return token, info, messageId       
 
 
 def bea_send_message_validation(__validationTokenMSG, __validations, __sessionKey):
@@ -1117,7 +1124,7 @@ def bea_send_message_validation(__validationTokenMSG, __validations, __sessionKe
     if __DEBUG__:
         print("token: " + token)
 
-    return token, info, messageId       
+    return token, info, messageId
 
 
 def bea_search(__token, 
