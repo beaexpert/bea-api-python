@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.2 / 12.08.2024
+    Version 2.3 / 22.08.2024
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -1492,7 +1492,7 @@ def bex_login(sw_token, __sw_pin, token_b64=''):
     result = send_request(fn_args, fn_name)
     print(result)
 
-    return result["token"], result["safeId"], result["sessionKey"]
+    return result["token"], result["safeId"], base64.b64decode(result["sessionKey"])
 
 
 
