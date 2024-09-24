@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.4 / 24.09.2024
+    Version 2.5 / 24.09.2024
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -415,10 +415,17 @@ def bea_get_folderstructure(__token, __postboxSafeId):
 
 
 
-def bea_get_identitydata(__token):
-    req_json = { 
-        "token": __token
-    }
+def bea_get_identitydata(__token,__safeid=""):
+
+    if __safeid is None or __safeid=="":
+        req_json = { 
+            "token": __token
+        }
+    else:
+        req_json = { 
+            "token": __token,
+            "safeId": __safeid
+        }
     req = str(json.JSONEncoder().encode(req_json))
     res = send_request(req, 'bea_get_identitydata')
 
@@ -442,7 +449,7 @@ def bea_get_identitydata(__token):
     if __DEBUG__:
         print("token: " + token)
 
-    return token, identitydata_struct       
+    return token, identitydata_struct
 
 
 def bea_get_username(__token, __identitySafeId):
