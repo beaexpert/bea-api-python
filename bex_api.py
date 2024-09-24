@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.3 / 22.08.2024
+    Version 2.4 / 24.09.2024
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -25,7 +25,7 @@ from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 import platform, shutil, subprocess, time, os
 
-# pip install pycryptodomex
+# pip install pycryptodome(x) --break-system-packages
 from Cryptodome.Cipher import AES
 from Crypto.Hash import SHA256
 
@@ -1461,6 +1461,33 @@ def bea_init_message_draft(__token, __messageId, __sessionKey):
     }
 
     return message_draft, msg_infos, msg_att 
+
+
+def bea_get_message_confirmations(__token, __messageId):
+    req_json = { 
+        "token": __token,
+        "messageId": __messageId
+    }
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bea_get_message_confirmations')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        token = res['token']
+        msg_confirmations = res["payload"]
+
+    except KeyError as e: 
+        if __DEBUG__:
+            print("KeyError in 'bea_get_message_confirmations'")
+            print(e)
+        exit()
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, msg_confirmations 
 
 
 def bex_login(sw_token, __sw_pin, token_b64=''):
