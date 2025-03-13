@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.5 / 24.09.2024
+    Version 2.6 / 13.03.2025
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -48,7 +48,6 @@ __config_file=os.path.join(__current_path,'private.config.ini')
 if os.path.exists(__config_file):
     __config = configparser.ConfigParser()
     __config.read(__config_file)
-    __DEBUG__ = __config["DEBUG"]["PRINT"]
 else :
     __config = {
         "BEA_EXPERT_API": {
@@ -56,10 +55,9 @@ else :
             "BEX_IDENT": "..."
         }
     }
-    #__config["BEA_EXPERT_API"]["HOST"] = "...."
-    #__config["BEA_EXPERT_API"]["BEX_IDENT"] = "...."    
-    __DEBUG__ = True
-
+    
+__DEBUG__ = True
+#__DEBUG__ = False
 
 def send_request(__req, __func):    
     url = __config["BEA_EXPERT_API"]["HOST"] + __func
@@ -94,159 +92,6 @@ def remove_namespace(doc, namespace):
     for elem in list(doc.iter()):
         if elem.tag.startswith(ns):
             elem.tag = elem.tag[nsl:]
-
-
-def bea_login(__sw_token, __sw_pin, __token_b64 = ''):
-    if __token_b64 == '':
-        token_raw = open(__sw_token, 'rb').read()
-    else:
-        token_raw = base64.b64decode(__token_b64)
-
-    (pkey,cert,add_cert) = serialization.pkcs12.load_key_and_certificates(token_raw, password=__sw_pin.encode("ascii"), backend=default_backend())
-    thumbprint = bytearray(cert.fingerprint(hashes.SHA1())).hex()
-    cert_b64 = base64.b64encode(cert.public_bytes(serialization.Encoding.PEM)).decode("ascii")
-
-    if __DEBUG__:
-        print('certificate object: ' + str(cert))
-        print('certificate private key: ' + str(pkey))
-        print('certificate thumbprint: ' + str(thumbprint))
-
-    req = str(json.JSONEncoder().encode({"thumbprint": thumbprint}))
-    res_login_step1 = send_request(req, 'bea_login_step1')
-    
-    if __DEBUG__:
-        print(res_login_step1)
-
-    try:
-        challengeVal = res_login_step1['challengeVal']
-        challengeValidation = res_login_step1['challengeValidation']
-        tokenPAOS = res_login_step1['tokenPAOS']
-    except KeyError as e: 
-        if __DEBUG__:
-            print("KeyError in 'bea_login_step1'")
-            print(e)
-        exit()
-
-    if __DEBUG__:
-        print("challengeVal: " + challengeVal)
-        print("challengeValidation: " + challengeValidation)
-        print("tokenPAOS: " + tokenPAOS)
-
-
-    challengeVal_signed = base64.b64encode(pkey.sign(
-        base64.b64decode(challengeVal),
-        padding.PKCS1v15(),
-        hashes.SHA256()
-    )).decode('ascii')
-
-    challengeValidation_signed = base64.b64encode(pkey.sign(
-        base64.b64decode(challengeValidation),
-        padding.PKCS1v15(),
-        hashes.SHA256()
-    )).decode('ascii')
-
-    if __DEBUG__:
-        print("challengeVal_signed: " + challengeVal_signed)
-        print("challengeValidation_signed: " + challengeValidation_signed)
-
-    return bea_login_step2(tokenPAOS, pkey, cert_b64, challengeVal_signed, challengeValidation_signed)
-
-
-
-def bea_login_step2(__tokenPAOS, __pkey, __cert_b64, __challengeVal_signed, __challengeValidation_signed): 
-
-    if __DEBUG__:
-        print("cert_b64: \n" + __cert_b64)
-
-    req_json = {
-        "tokenPAOS": __tokenPAOS,
-        "userCert": __cert_b64,
-        "challengeSigned": __challengeVal_signed,
-        "validationSigned": __challengeValidation_signed
-    }
-    req = str(json.JSONEncoder().encode(req_json))
-    res_login_step2 = send_request(req, 'bea_login_step2')
-    
-    if __DEBUG__:
-        print(res_login_step2)
-
-    try:
-        safeId = res_login_step2['safeId']
-        sessionKey = res_login_step2['sessionKey']
-        validationKey = res_login_step2['validationKey']
-        tokenValidation = res_login_step2['tokenValidation']
-    except KeyError as e: 
-        if __DEBUG__:
-            print("KeyError in 'bea_login_step2'")
-            print(e)
-        exit()
-
-    if __DEBUG__:
-        print("safeId: " + safeId)
-        print("sessionKey: " + sessionKey)
-        print("validationKey: " + validationKey)
-        print("tokenValidation: " + tokenValidation)
-
-
-    try:
-        sessionKey_dec = __pkey.decrypt(
-            base64.b64decode(sessionKey),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-    except:
-        sessionKey_dec = b"12345678901234567890123456789000"
-
-
-    try:
-        validationKey_dec = __pkey.decrypt(
-            base64.b64decode(validationKey),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-    except:
-        validationKey_dec = b"12345678901234567890123456789000"
-
-    if __DEBUG__:#
-        print("sessionKey_dec: ")
-        print(sessionKey_dec)
-        print("validationKey_dec: ")
-        print(validationKey_dec)
-
-    token = bea_login_step3(tokenValidation, validationKey_dec)
-    return token, safeId, sessionKey_dec
-
-
-
-def bea_login_step3(__tokenValidation, __validationKey):
-    req_json = {
-        "tokenValidation": __tokenValidation,
-        "validationKey": base64.b64encode(__validationKey).decode('ascii')
-    }
-    req = str(json.JSONEncoder().encode(req_json))
-    res_login_step3 = send_request(req, 'bea_login_step3')
-    
-    if __DEBUG__:
-        print(res_login_step3)
-
-    try:
-        token = res_login_step3['token']
-    except KeyError as e: 
-        if __DEBUG__:
-            print("KeyError in 'bea_login_step3'")
-            print(e)
-        exit()
-
-    if __DEBUG__:
-        print("token: " + token)
-
-    return token
 
 
 def bea_logout(__token):
@@ -1483,7 +1328,8 @@ def bea_get_message_confirmations(__token, __messageId):
 
     try:
         token = res['token']
-        msg_confirmations = res["payload"]
+        payload = res["payload"]
+        msg_confirmations = res["confirmations"]
 
     except KeyError as e: 
         if __DEBUG__:
@@ -1494,7 +1340,7 @@ def bea_get_message_confirmations(__token, __messageId):
     if __DEBUG__:
         print("token: " + token)
 
-    return token, msg_confirmations 
+    return token, payload, msg_confirmations
 
 
 def bex_login(sw_token, __sw_pin, token_b64=''):
@@ -1524,7 +1370,7 @@ def bex_login(sw_token, __sw_pin, token_b64=''):
     
     #result = bea_module.bea_api_request(fn_name, fn_args)
     result = send_request(fn_args, fn_name)
-    print(result)
+    if __DEBUG__: print(result)
 
     return result["token"], result["safeId"], base64.b64decode(result["sessionKey"])
 
@@ -1569,7 +1415,7 @@ def convert_p12_to_pem(p12_path, pem_out_path, p12_password):
 
            
                 
-    print(f'Conversion complete. The PEM file is saved as {pem_out_path}')
+    if __DEBUG__: print(f'Conversion complete. The PEM file is saved as {pem_out_path}')
 
 
 
