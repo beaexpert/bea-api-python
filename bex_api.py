@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.6 / 13.03.2025
+    Version 2.7 / 23.09.2025
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -14,6 +14,9 @@
     notice: to use this script you first need to
             subscribe to the beA.expert API 
             more info: https://bea.expert/api/
+
+    2.7: added detection of base64 challenge
+
 """
 
 import requests
@@ -25,11 +28,11 @@ from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 import platform, shutil, subprocess, time, os
 
-# pip install pycryptodome(x) --break-system-packages
+# pip install pycryptodome(x) --break-system-packages OR use env
 from Cryptodome.Cipher import AES
 from Crypto.Hash import SHA256
 
-# pip install cryptography 
+# pip install cryptography --break-system-packages OR use env
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -1455,9 +1458,9 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
     convert_p12_to_pem(user_p12_file, tmp_pem_file, sw_pin)
 
 
-    # define signature input file
+    # define signature input file # can be binary
     challenge_txt_file = os.path.join(tempdir, "challenge.txt")
-    with open(challenge_txt_file, "w") as file:
+    with open(challenge_txt_file, "wb") as file:
         file.write(to_sign_challenge)
 
 
@@ -1509,7 +1512,22 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
     return signature_clean
 
 
-
+#detect uuid - trivial form
+def is_uuid(value):
+    
+    if not isinstance(value, str):
+        return False
+    
+    if len(value) != 36:
+        return False
+    
+    if (value[8] == '-' and 
+        value[13] == '-' and 
+        value[18] == '-' and 
+        value[23] == '-'):
+        return True
+    
+    return False
 
 def bex_login_step1(sw_token, sw_pin, token_b64):
     if token_b64 == '':
@@ -1535,8 +1553,15 @@ def bex_login_step1(sw_token, sw_pin, token_b64):
     if __DEBUG__: print("bex_login_step1", res)
     try:
         tokenPAOS = res['tokenPAOS']
-        challengeVal = res['challengeVal']
-        challengeValidation = res['challengeValidation']
+        if is_uuid(res['challengeVal']):
+            challengeVal = res['challengeVal'].encode('ascii')
+        else:
+            challengeVal = base64.b64decode(res['challengeVal'])
+
+        if is_uuid(res['challengeValidation']):
+            challengeValidation = res['challengeValidation'].encode('ascii')
+        else:
+            challengeValidation = base64.b64decode(res['challengeValidation'])
 
     except KeyError as e: 
         if __DEBUG__:
@@ -1650,3 +1675,58 @@ def bex_login_step3(__tokenValidation, __validationKey):
         print("token: " + token)
 
     return token
+
+
+
+
+
+
+def bea_get_messagejournal(__token, __messageId):
+    req_json = { 
+        "token": __token,
+        "messageId": __messageId
+    }
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bea_get_messagejournal')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        token = res['token']
+        journals = res['journals']
+    except KeyError as e: 
+        if __DEBUG__:
+            print("KeyError in 'bea_get_messagejournal'")
+            print(e)
+        exit()
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, journals
+
+def bea_get_postboxjournal(__token, __postboxId):
+    req_json = { 
+        "token": __token,
+        "safeId": __postboxId
+    }
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bea_get_postboxjournal')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        token = res['token']
+        journals = res['journals']
+    except KeyError as e: 
+        if __DEBUG__:
+            print("KeyError in 'bea_get_postboxjournal'")
+            print(e)
+        exit()
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, journals       
