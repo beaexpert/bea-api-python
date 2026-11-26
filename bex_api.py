@@ -2,7 +2,7 @@
     beA.expert BEA-API / EXPERIMENTAL
     ---------------------------------
     Demo script not intented for production
-    Version 2.7 / 23.09.2025
+    Version 3.0 / 19.11.2026
     (c) be next GmbH (Licence: GPL-2.0 & BSD-3-Clause)
     https://opensource.org/licenses/GPL-2.0
     https://opensource.org/licenses/BSD-3-Clause
@@ -16,6 +16,9 @@
             more info: https://bea.expert/api/
 
     2.7: added detection of base64 challenge
+    2.8: added bea_get_userjournal
+    2.9: added prüfprotokoll
+    3.0: SHA detection prüfprotokoll, need asn1crypto
 
 """
 
@@ -54,7 +57,7 @@ if os.path.exists(__config_file):
 else :
     __config = {
         "BEA_EXPERT_API": {
-            "HOST": "http://127.0.0.1:8422/",
+            "HOST": "...",
             "BEX_IDENT": "..."
         }
     }
@@ -356,33 +359,7 @@ def bea_get_messageconfig(__token):
     return token, messageconfig_struct       
 
 
-def bea_get_addressbook(__token):
-    req_json = { 
-        "token": __token
-    }
-    req = str(json.JSONEncoder().encode(req_json))
-    res = send_request(req, 'bea_get_addressbook')
-
-    if __DEBUG__:
-        print(res)
-
-    try:
-        token = res['token']
-        addressbook_struct = json.loads(
-            str(json.JSONEncoder().encode(res['addressbook'])), 
-            object_hook=lambda 
-            d: SimpleNamespace(**d)
-        )
-    except KeyError as e: 
-        if __DEBUG__:
-            print("KeyError in 'bea_get_addressbook'")
-            print(e)
-        exit()
-
-    if __DEBUG__:
-        print("token: " + token)
-
-    return token, addressbook_struct       
+# bea_get_addressbook: removed, deprecated (the API answers "bea_get_addressbook deprecated")
 
 
 def bea_add_addressbookentry(__token, __identitySafeId):
@@ -699,11 +676,6 @@ def bea_get_message(__token, __messageId, __sessionKey):
     if __DEBUG__:
         print(res)
 
-        #f = open("log_message.txt", "w")
-        #_b64 = base64.b64encode(__sessionKey)
-        #f.write("sessionKey: " + str(_b64) + "\n" + json.JSONEncoder().encode(res))
-        #f.close()
-
     try:
         token = res['token']
         message_struct = json.loads(
@@ -872,7 +844,7 @@ def bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sess
         object_hook=lambda 
         d: SimpleNamespace(**d)
     )
-
+    
     aesCipher = AES.new(key, AES.MODE_GCM)
     ciphertext, tag = aesCipher.encrypt_and_digest(msg_infos_struct.betreff.encode('utf-8'))
 
@@ -882,11 +854,9 @@ def bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sess
     encSubject_struct.iv = base64.b64encode(aesCipher.nonce).decode('utf-8')
     encSubject_struct.key = base64.b64encode(key).decode('utf-8')
     encSubject = json.loads(json.dumps(encSubject_struct, default=lambda o: o.__dict__, sort_keys=True, indent=4))
-    #encSubject = encSubject_struct
     
     if __DEBUG__:
-        print("encSubject:")
-        print(encSubject)
+        print("encSubject:",encSubject)
 
     enc_attachment_data = []
     for a in msg_att_struc.attachments:
@@ -909,11 +879,9 @@ def bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sess
         encAtt = json.loads(json.dumps(encAtt_struct, default=lambda o: o.__dict__, sort_keys=True, indent=4))
 
         if __DEBUG__:
-            print("encAtt:")
-            print(encAtt)
+            print("encAtt:",encAtt)
 
         enc_attachment_data.append(encAtt)
-        #enc_attachment_data.append(encAtt_struct)
 
     req_json = { 
         "messageToken": messageToken,
@@ -955,14 +923,10 @@ def bea_save_message(__token, __postboxSafeId, __msg_infos, __msg_att, __session
     return token, info, messageId
 
 
-def bea_send_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sessionKey, __messageDraft = None, no_v2 = False):
+def bea_send_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sessionKey, __messageDraft = None):
     req_json = bea_encrypt_message(__token, __postboxSafeId, __msg_infos, __msg_att, __sessionKey, __messageDraft)
     req = str(json.JSONEncoder().encode(req_json))
-    
-    if no_v2 is True:
-        res = send_request(req, 'bea_send_message_nov2')
-    else:
-        res = send_request(req, 'bea_send_message')
+    res = send_request(req, 'bea_send_message')
 
     if __DEBUG__:
         print(res)
@@ -991,11 +955,11 @@ def bea_send_message(__token, __postboxSafeId, __msg_infos, __msg_att, __session
         print("validations:")
         print(validations)
 
-    token, info, messageId = bea_send_message_validation(validationTokenMSG, validations, __sessionKey, no_v2 = no_v2)
+    token, info, messageId = bea_send_message_validation(validationTokenMSG, validations, __sessionKey)
     return token, info, messageId     
 
 
-def bea_send_message_validation(__validationTokenMSG, __validations, __sessionKey, no_v2 = False):
+def bea_send_message_validation(__validationTokenMSG, __validations, __sessionKey):
     dec_validations = []
 
     for v in __validations:
@@ -1016,10 +980,7 @@ def bea_send_message_validation(__validationTokenMSG, __validations, __sessionKe
         "validations": dec_validations
     }
     req = str(json.JSONEncoder().encode(req_json))
-    #res = send_request(req, 'bea_send_message_validation')
-    if no_v2 is True: res = send_request(req, 'bea_send_message_validation_nov2')
-    else: res = send_request(req, 'bea_send_message_validation')
-
+    res = send_request(req, 'bea_send_message_validation')
 
     if __DEBUG__:
         print(res)
@@ -1318,6 +1279,38 @@ def bea_init_message_draft(__token, __messageId, __sessionKey):
     return message_draft, msg_infos, msg_att 
 
 
+def bea_get_gericht_codes(__token):
+    req_json = { 
+        "token": __token
+    }
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bex_get_gericht_codes')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        daten = res['daten']    # list of [code, name] pairs
+        gericht_codes = json.loads(
+            str(json.JSONEncoder().encode(res)), 
+            object_hook=lambda 
+            d: SimpleNamespace(**d)
+        )
+    except KeyError as e: 
+        if __DEBUG__:
+            print("KeyError in 'bea_get_gericht_codes'")
+            print(e)
+        exit()
+
+    # the answer of this function carries no new token: the session goes on with the given one
+    token = res['token'] if 'token' in res else __token
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, gericht_codes
+
+
 def bea_get_message_confirmations(__token, __messageId):
     req_json = { 
         "token": __token,
@@ -1358,30 +1351,20 @@ def bex_login(sw_token, __sw_pin, token_b64=''):
 
     fn_params = {
         "config": {
-            "disable_login_v1": False,                  # <- default: false
-            "disable_login_v2": False,                  # <- default: true
-            "fallback_ksw_v8_extra_session": False,     # <- default: false
-            "p12_certificate_file": base64.b64encode(token_raw).decode("ascii"),          # <- default: "" (if not "" with pass -> api decrypt/sign etc)
-            "p12_certificate_pass": __sw_pin,                # <- default: "" (if not "" with file -> api decrypt/sign etc)
-            "allow_endless_sessions": False,            # <- default: false (needs p12 + pass!)
+            "p12_certificate_file": base64.b64encode(token_raw).decode("ascii"),        # <- default: "" (if not "" with pass -> api decrypt/sign etc)
+            "p12_certificate_pass": __sw_pin,                                           # <- default: "" (if not "" with file -> api decrypt/sign etc)
         },
         "thumbprint": thumbprint
     }
     fn_name = "bex_login_step1"
     fn_args = str(json.JSONEncoder().encode(fn_params))
 
-    
-    #result = bea_module.bea_api_request(fn_name, fn_args)
     result = send_request(fn_args, fn_name)
     if __DEBUG__: print(result)
 
     return result["token"], result["safeId"], base64.b64decode(result["sessionKey"])
 
 
-
-
-# Example usage:
-# convert_p12_to_pem('path/to/your_certificate.p12', 'path/to/your_certificate.pem', 'p12password')
 def convert_p12_to_pem(p12_path, pem_out_path, p12_password):
     # Read the .p12 file
     with open(p12_path, 'rb') as p12_file:
@@ -1416,11 +1399,7 @@ def convert_p12_to_pem(p12_path, pem_out_path, p12_password):
             for cert in additional_certificates:
                 pem_file.write(cert.public_bytes(serialization.Encoding.PEM))
 
-           
-                
     if __DEBUG__: print(f'Conversion complete. The PEM file is saved as {pem_out_path}')
-
-
 
 
 def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path_to_openssl: str = "") -> str:
@@ -1444,7 +1423,6 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
     if os.path.exists(tempdir): shutil.rmtree(tempdir)
     os.makedirs(tempdir)
 
-
     # save p12 token to temp
     if token_b64 != '': # save the buffer
         user_p12_file = os.path.join(tempdir, "x.p12")
@@ -1457,16 +1435,13 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
     tmp_pem_file = os.path.join(tempdir, "x.pem")
     convert_p12_to_pem(user_p12_file, tmp_pem_file, sw_pin)
 
-
     # define signature input file # can be binary
     challenge_txt_file = os.path.join(tempdir, "challenge.txt")
     with open(challenge_txt_file, "wb") as file:
         file.write(to_sign_challenge)
 
-
     # define signature out file
     signature_p7m_file = os.path.join(tempdir, "response.p7m")
-
 
     # define openssl exe with path
     openssl_exe = "openssl.exe" if is_windows else "openssl"
@@ -1475,7 +1450,7 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
     # execute signature cmd line
     cmd = [
         openssl_exe, 
-        "cms", "-sign", 
+        "cms", "-sign", "-binary",
         "-in", challenge_txt_file, 
         "-out", signature_p7m_file, 
         "-signer", tmp_pem_file, 
@@ -1502,11 +1477,9 @@ def sign_cms_command_line_edition(p12_struct: dict, to_sign_challenge: str, path
                                    .replace("-----END CMS-----", "")\
                                    .replace("\r", "")\
                                    .replace("\n", "")
-
-
+    
     # cleanup temp dir
     shutil.rmtree(tempdir)
-
 
     # return signed value
     return signature_clean
@@ -1584,10 +1557,6 @@ def bex_login_step1(sw_token, sw_pin, token_b64):
     return bex_login_step2(tokenPAOS, challengeVal_signed, challengeValidation_signed, pkey, cert_b64)
 
 
-
-
-
-
 def bex_login_step2(__tokenPAOS, __challengeVal_signed, __challengeValidation_signed, __pkey, cert_b64):
     if __DEBUG__:
         print("cert_b64: \n" + cert_b64)
@@ -1615,7 +1584,6 @@ def bex_login_step2(__tokenPAOS, __challengeVal_signed, __challengeValidation_si
             print(e)
         exit()
 
-
     try:
         sessionKey_dec = __pkey.decrypt(
             base64.b64decode(sessionKey),
@@ -1627,7 +1595,6 @@ def bex_login_step2(__tokenPAOS, __challengeVal_signed, __challengeValidation_si
         )
     except:
         sessionKey_dec = b"12345678901234567890123456789000"
-
 
     try:
         validationKey_dec = __pkey.decrypt(
@@ -1649,7 +1616,6 @@ def bex_login_step2(__tokenPAOS, __challengeVal_signed, __challengeValidation_si
 
     token = bex_login_step3(tokenValidation, validationKey_dec)
     return token, safeId, sessionKey_dec
-
 
 
 def bex_login_step3(__tokenValidation, __validationKey):
@@ -1675,11 +1641,6 @@ def bex_login_step3(__tokenValidation, __validationKey):
         print("token: " + token)
 
     return token
-
-
-
-
-
 
 def bea_get_messagejournal(__token, __messageId):
     req_json = { 
@@ -1730,3 +1691,291 @@ def bea_get_postboxjournal(__token, __postboxId):
         print("token: " + token)
 
     return token, journals       
+
+
+def bea_get_userjournal(__token, __safeId):
+    req_json = { 
+        "token": __token,
+        "identitySafeId": __safeId
+    }
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bea_get_userjournal')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        token = res['token']
+        journals = res['journals']
+    except KeyError as e: 
+        if __DEBUG__:
+            print("KeyError in 'bea_get_userjournal'")
+            print(e)
+        exit()
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, journals
+
+
+def p7s_digest_algorithm(p7s_bytes):
+    """Return the hashlib name ('sha256', 'sha384', 'sha512', ...) of the digest
+    algorithm used by a detached CMS / PKCS#7 signature. Raises ValueError if unreadable."""
+
+    # pip install asn1crypto --break-system-packages OR use env
+    from asn1crypto import cms, pem
+
+    if pem.detect(p7s_bytes):                      #accept PEM as well as DER
+        _, _, p7s_bytes = pem.unarmor(p7s_bytes)
+    content_info = cms.ContentInfo.load(p7s_bytes)
+    if content_info['content_type'].native != 'signed_data':
+        raise ValueError("not a PKCS#7 SignedData structure")
+    signer_infos = content_info['content']['signer_infos']
+    if len(signer_infos) == 0:
+        raise ValueError("signature contains no signer")
+    return signer_infos[0]['digest_algorithm']['algorithm'].native   #first signer decides
+
+
+def bea_get_message_pruefprotokoll(__token, __messageId, __sessionKey, __pdf_output_file_full_path):
+
+    #we need to calculate hash values
+    import hashlib
+
+    #first we do a get message, since if the message is not online, no prüfprotokoll can be generated
+    token, message_struct = bea_get_message(__token, __messageId, __sessionKey)
+
+    if "error" in vars(message_struct):
+        return token, message_struct.error
+
+    signature_extensions = ('.p7s', '.pkcs7')
+    base_files = {}
+    p7s_files = {}
+    p7s_data = {}   #parent file name -> raw signature bytes, needed to detect the hash algorithm
+
+    #pass 1: collect the signature files (.p7s), so their algorithm is known before hashing the parent files
+    for file in message_struct.attachments:
+        if file.reference.lower().endswith(signature_extensions):
+            base_name = file.reference.rsplit('.', 1)[0] #split at the last dot to find the parent file
+            p7s_data[base_name] = file.data
+            p7s_files[base_name] = {
+                "p7s_name": file.reference,
+                #hash of the signature file itself: always SHA-256
+                "p7s_sha256": base64.b64encode(hashlib.sha256(file.data).digest()).decode('utf-8'),
+                "p7s_content": base64.b64encode(file.data).decode('utf-8')
+            }
+
+    #pass 2: hash the normal files with the algorithm of their signature (SHA-256 if there is no signature)
+    for file in message_struct.attachments:
+        if file.reference.lower().endswith(signature_extensions):
+            continue
+
+        digest_alg = 'sha256'
+        if file.reference in p7s_data:
+            try:
+                digest_alg = p7s_digest_algorithm(p7s_data[file.reference])
+            except Exception as e:
+                return token, {"error": "could not read signature file '" + p7s_files[file.reference]["p7s_name"] + "': " + str(e)}
+
+        try:
+            file_hash = hashlib.new(digest_alg, file.data).digest()
+        except (ValueError, TypeError) as e:
+            return token, {"error": "unsupported hash algorithm '" + str(digest_alg) + "' in signature of '" + file.reference + "': " + str(e)}
+
+        base_files[file.reference] = {
+            "name": file.reference,
+            #NOTE: the field is still called "sha256" for compatibility reasons, but it does not
+            #always contain a SHA-256 value: it holds the hash in the algorithm used by the
+            #matching .p7s signature (SHA-256, SHA-384, SHA-512, ...), base64 encoded.
+            "sha256": base64.b64encode(file_hash).decode('utf-8'),
+            "digest_alg": digest_alg
+        }
+
+    final_files = []
+    for name, file_info in base_files.items():
+        if name in p7s_files:
+            file_info.update(p7s_files[name])
+        final_files.append(file_info)
+
+    #then we fetch the "prüfprotokoll"
+    req_json = {
+        "messageId": __messageId,
+        "files": final_files,
+        "token": token
+    }
+
+    req = str(json.JSONEncoder().encode(req_json))
+    res = send_request(req, 'bea_get_message_pruefprotokoll')
+
+    if __DEBUG__:
+        print(res)
+
+    try:
+        token = res['token']
+        payload = res['payload']
+    except (KeyError, TypeError) as e:
+        if __DEBUG__:
+            print("KeyError in 'bea_get_message_pruefprotokoll'")
+            print(e)
+        return token, {"error": "unexpected response from 'bea_get_message_pruefprotokoll', missing field: " + str(e)}
+
+    if not __pdf_output_file_full_path == "":
+        try:
+            with open(__pdf_output_file_full_path, "wb") as f:
+                f.write(base64.b64decode(payload))
+        except (OSError, ValueError, TypeError) as e:
+            return token, {"error": "could not save pdf to '" + __pdf_output_file_full_path + "': " + str(e)}
+        if __DEBUG__:
+            print("pdf saved!")
+
+    if __DEBUG__:
+        print("token: " + token)
+
+    return token, payload
+
+def qes_get_sigtoken(__token):
+    # Initialize default return values
+    token = None
+    sigtoken = None
+    devices = []
+    certificates = []
+    error = None
+
+    req_json = {
+        "token": __token
+    }
+    
+    req = json.dumps(req_json)
+    res = send_request(req, 'qes_get_sigtoken')
+
+    if __DEBUG__:
+        print(res)
+
+    token = res.get('token')
+
+    if isinstance(res, dict) and 'error' in res:
+        error = res['error']
+        return token, None, None, None, None, error    
+    
+    sigtoken = res.get('sigtoken')
+    sigtoken_valid_until = res.get('sigtoken_valid_until')
+    devices = res.get('devices', [])
+    certificates = res.get('certificates', []) 
+    
+    if __DEBUG__:
+        if error:
+            print(f"qes_get_sigtoken Error: {error}")
+        else:
+            print(f"token: {token} | sigtoken: {sigtoken}")
+
+    # Return the tuple. The calling function can check `if error is not None:`
+    if error:
+        return token, None, None, None, None, error
+    else:
+        return token, sigtoken, sigtoken_valid_until, devices, certificates, None
+    
+def qes_sign_file(__token, __sigtoken, __files, __certificate, __device):
+    """
+    Initiates a batch signature request.
+    
+    Expected format for __files:
+    [
+        {
+            "file_name": "document1.pdf",
+            "file_b64": "JVBERi0xLjQK...",
+            "file_sha256_hexhash": "a1b2c3d4..."
+        },
+        ...
+    ]
+    """
+    # Initialize default return values
+    token = None
+    error = None
+
+    # Construct the payload according to the updated C++ backend requirements
+    req_json = {
+        "token": __token,
+        "sigtoken": __sigtoken,
+        "files": __files,
+        "certificate": __certificate,
+        "device": __device
+    }
+    
+    req = json.dumps(req_json)
+    res = send_request(req, 'qes_sign_file')
+
+    if __DEBUG__:
+        print(f"Raw Response: {res}")
+
+    # Safely extract the rolling token
+    token = res.get('token')
+
+    # Check if the C++ backend explicitly returned an error string
+    if isinstance(res, dict) and 'error' in res:
+        error = res['error']
+        # Return whatever token we have, None for payload, and the error
+        return token, None, error
+
+    if __DEBUG__:
+        if error:
+            print(f"qes_sign_file Error: {error}")
+        else:
+            print(f"qes_sign_file Success | token: {token}")
+
+    # Return the rolling token, the full response dict (for further processing), and None for error
+    if error:
+        return token, None, error
+    else:
+        return token, res, None
+    
+
+def qes_get_signature(__token, __id):
+    """
+    Polls the backend for the status of an ongoing signature transaction.
+    """
+    # Initialize default return values
+    token = None
+    state = None
+    signatures = []
+    error = None
+
+    # Construct the payload
+    req_json = {
+        "token": __token,
+        "id": __id
+    }
+    
+    req = json.dumps(req_json)
+    res = send_request(req, 'qes_get_signature')
+
+    if __DEBUG__:
+        # Optional: You might want to comment this print out later if it clutters 
+        # your terminal during the 2-second polling loop
+        print(f"Raw Response (qes_get_signature): {res}")
+
+    # Safely extract the rolling token (always update this on the client side!)
+    token = res.get('token')
+
+    # 1. Check if the backend explicitly returned an error string
+    if isinstance(res, dict) and 'error' in res:
+        error = res['error']
+        return token, None, None, error
+
+    # 2. Extract the state and signatures
+    state = res.get('state')
+    
+    # Default to an empty array if "signatures" isn't present yet (e.g., IN_PROGRESS)
+    signatures = res.get('signatures', [])
+
+    if __DEBUG__:
+        if error:
+            print(f"qes_get_signature Error: {error}")
+        else:
+            print(f"qes_get_signature State: {state} | Signatures Count: {len(signatures)}")
+
+    # Return the rolling token, state, signatures list, and None for error
+    if error:
+        return token, None, None, error
+    else:
+        return token, state, signatures, None
+    
